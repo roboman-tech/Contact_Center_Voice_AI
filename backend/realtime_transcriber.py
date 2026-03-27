@@ -193,37 +193,39 @@ def _webm_to_pcm(webm_bytes: bytes) -> np.ndarray | None:
     """Decode WebM/Matroska bytes (audio or video) to 16kHz mono int16 PCM.
     Uses ffmpeg with explicit -ar 16000 -ac 1 for reliable Opus 48kHz->16kHz conversion."""
     import subprocess
-    import tempfile
     try:
         ff = shutil.which("ffmpeg")
         if ff:
-            with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f:
-                f.write(webm_bytes)
-                tmp = f.name
-            try:
-                out = subprocess.run(
-                    [
-                        ff, "-y", "-i", tmp,
-                        "-vn", "-ar", str(SAMPLE_RATE_WHISPER), "-ac", "1",
-                        "-f", "s16le", "-"
-                    ],
-                    capture_output=True,
-                    timeout=5,
-                )
-                if out.returncode == 0 and len(out.stdout) >= 2:
-                    samples = np.frombuffer(out.stdout, dtype=np.int16)
-                    if _DEBUG and len(samples) > 0:
-                        rms = _rms_normalized(samples)
-                        logging.info(
-                            "WebM(ffmpeg): %d bytes -> %d samples (%.2fs), RMS=%.4f",
-                            len(webm_bytes), len(samples), len(samples) / SAMPLE_RATE_WHISPER, rms,
-                        )
-                    return samples
-            finally:
-                try:
-                    os.unlink(tmp)
-                except OSError:
-                    pass
+            out = subprocess.run(
+                [
+                    ff,
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    "pipe:0",
+                    "-vn",
+                    "-ar",
+                    str(SAMPLE_RATE_WHISPER),
+                    "-ac",
+                    "1",
+                    "-f",
+                    "s16le",
+                    "-",
+                ],
+                input=webm_bytes,
+                capture_output=True,
+                timeout=10,
+            )
+            if out.returncode == 0 and len(out.stdout) >= 2:
+                samples = np.frombuffer(out.stdout, dtype=np.int16)
+                if _DEBUG and len(samples) > 0:
+                    rms = _rms_normalized(samples)
+                    logging.info(
+                        "WebM(ffmpeg): %d bytes -> %d samples (%.2fs), RMS=%.4f",
+                        len(webm_bytes), len(samples), len(samples) / SAMPLE_RATE_WHISPER, rms,
+                    )
+                return samples
     except Exception as e:
         if _DEBUG:
             logging.warning("ffmpeg WebM decode failed: %s", e)

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   Mic,
@@ -232,6 +232,11 @@ export default function App() {
   const hasContent =
     dialogue.length > 0 || finalLayer || currentLayer || tempLayer;
 
+  const dialogueJoined = useMemo(
+    () => dialogue.map((item) => item.text).join(" "),
+    [dialogue]
+  );
+
   return (
     <div className="app">
       <header className="header">
@@ -341,7 +346,7 @@ export default function App() {
                 <div className="dialogue-single">
                   <span className="speaker">{liveSpeaker}</span>
                   <div className="dialogue-text" ref={dialogueEndRef}>
-                    {dialogue.map((item) => item.text).join(" ")}
+                    {dialogueJoined}
                     {dialogue.length > 0 && (currentLayer || tempLayer) ? " " : ""}
                     <span className="caption-current">{currentLayer}</span>
                     {currentLayer && tempLayer ? " " : ""}

@@ -7,6 +7,10 @@ import { useCallback, useRef } from "react";
 
 const CHUNK_MS = 2500;
 
+const devLog = (...args) => {
+  if (import.meta.env.DEV) console.log(...args);
+};
+
 function getWsUrl() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws/live`;
@@ -93,7 +97,7 @@ export function useLiveCaption({
 
       ws.onmessage = (e) => {
         if (typeof e.data === "string") {
-          console.log("[LiveCaption] msg:", e.data.slice(0, 80));
+          devLog("[LiveCaption] msg:", e.data.slice(0, 80));
           try {
             const msg = JSON.parse(e.data);
             const ev = msg.event;
@@ -117,7 +121,7 @@ export function useLiveCaption({
       try {
         await new Promise((resolve, reject) => {
           ws.onopen = () => {
-            console.log("[LiveCaption] WebSocket connected");
+            devLog("[LiveCaption] WebSocket connected");
             ws.send(
               JSON.stringify({
                 event: "init",
@@ -152,9 +156,9 @@ export function useLiveCaption({
             });
             blob.arrayBuffer().then((buf) => {
               if (wsRef.current?.readyState === WebSocket.OPEN && buf.byteLength >= 100) {
-                console.log("[LiveCaption] sending audio", buf.byteLength, "bytes");
+                devLog("[LiveCaption] sending audio", buf.byteLength, "bytes");
                 wsRef.current.send(buf);
-              } else {
+              } else if (import.meta.env.DEV) {
                 console.warn("[LiveCaption] skip send:", buf.byteLength, "bytes, open=", wsRef.current?.readyState === WebSocket.OPEN);
               }
             });

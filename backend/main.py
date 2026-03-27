@@ -3,12 +3,14 @@ Contact Center Voice AI - Web API
 Full spec: VAD, 3-layer captions, DeepSeek, device/model selection.
 """
 
-import os
-import sys
-import logging
-import shutil
-import tempfile
 import asyncio
+import json
+import logging
+import os
+import queue
+import shutil
+import sys
+import tempfile
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -92,9 +94,9 @@ def _build_prompt(pre_given_context: str, dialogue: list[dict], question: str) -
     if question:
         user += f"Latest question/request:\n{question}\n\nGenerate a helpful answer:"
     elif lines:
-        user += "Provide a only brief answer or suggested response for the latest question or request in the chat."
+        user += "Provide only a brief answer or suggested response for the latest question or request in the chat."
     else:
-        user += "Provide a only brief answer based on the pre-given context alone."
+        user += "Provide only a brief answer based on the pre-given context alone."
     return sys, user
 
 
@@ -140,14 +142,6 @@ async def health():
     return {"status": "ok"}
 
 
-def _send_json_safe(ws, obj):
-    try:
-        import json
-        asyncio.get_event_loop().create_task(ws.send_json(obj))
-    except Exception:
-        pass
-
-
 @app.websocket("/ws/live")
 async def websocket_live(ws: WebSocket):
     """Full spec: PCM audio, VAD, 3-layer captions, clear, device_model_change."""
@@ -156,7 +150,7 @@ async def websocket_live(ws: WebSocket):
     model = "small.en"
     device = "auto"
     transcriber = None
-    transcript_queue = __import__("queue").Queue()
+    transcript_queue: queue.Queue = queue.Queue()
     run_sender = True
 
     acc_current = []
@@ -166,7 +160,6 @@ async def websocket_live(ws: WebSocket):
         transcript_queue.put((caption_type, text or ""))
 
     async def sender_loop():
-        q = __import__("queue")
         while run_sender:
             await asyncio.sleep(0.02)
             while True:
@@ -206,7 +199,7 @@ async def websocket_live(ws: WebSocket):
                             "current": " ".join(acc_current).strip(),
                             "temp": acc_temp[0],
                         })
-                except q.Empty:
+                except queue.Empty:
                     break
                 except (WebSocketDisconnect, RuntimeError):
                     return
@@ -217,7 +210,7 @@ async def websocket_live(ws: WebSocket):
         try:
             cfg = await asyncio.wait_for(ws.receive(), timeout=3.0)
             if "text" in cfg:
-                j = __import__("json").loads(cfg["text"])
+                j = json.loads(cfg["text"])
                 if j.get("event") == "init":
                     model = j.get("model", model)
                     device = j.get("device", device)
@@ -233,7 +226,7 @@ async def websocket_live(ws: WebSocket):
 
             if "text" in msg:
                 try:
-                    j = __import__("json").loads(msg["text"])
+                    j = json.loads(msg["text"])
                     ev = j.get("event")
                     if ev == "stop":
                         break
