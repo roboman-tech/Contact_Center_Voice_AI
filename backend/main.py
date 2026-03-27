@@ -199,7 +199,7 @@ async def websocket_live(ws: WebSocket):
                             "current": " ".join(acc_current).strip(),
                             "temp": acc_temp[0],
                         })
-                except queue.Empty:
+                except q.Empty:
                     break
                 except (WebSocketDisconnect, RuntimeError):
                     return
@@ -210,7 +210,7 @@ async def websocket_live(ws: WebSocket):
         try:
             cfg = await asyncio.wait_for(ws.receive(), timeout=3.0)
             if "text" in cfg:
-                j = json.loads(cfg["text"])
+                j = __import__("json").loads(cfg["text"])
                 if j.get("event") == "init":
                     model = j.get("model", model)
                     device = j.get("device", device)
@@ -226,7 +226,7 @@ async def websocket_live(ws: WebSocket):
 
             if "text" in msg:
                 try:
-                    j = json.loads(msg["text"])
+                    j = __import__("json").loads(msg["text"])
                     ev = j.get("event")
                     if ev == "stop":
                         break
