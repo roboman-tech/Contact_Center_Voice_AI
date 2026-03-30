@@ -14,6 +14,16 @@ const devLog = (...args) => {
 function getWsUrl() {
   const explicit = import.meta.env.VITE_WS_URL;
   if (explicit) return explicit;
+  const apiBase = import.meta.env.VITE_API_BASE;
+  if (apiBase) {
+    try {
+      const u = new URL(apiBase);
+      const wsProto = u.protocol === "https:" ? "wss:" : "ws:";
+      return `${wsProto}//${u.host}/ws/live`;
+    } catch {
+      /* fall through */
+    }
+  }
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws/live`;
 }
