@@ -199,7 +199,7 @@ async def websocket_live(ws: WebSocket):
                             "current": " ".join(acc_current).strip(),
                             "temp": acc_temp[0],
                         })
-                except q.Empty:
+                except queue.Empty:
                     break
                 except (WebSocketDisconnect, RuntimeError):
                     return
