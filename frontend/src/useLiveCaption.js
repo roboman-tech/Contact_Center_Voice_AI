@@ -8,6 +8,8 @@ import {
   isHttpsPage,
   isInsecureBackendUrl,
   mixedContentBackendMessage,
+  upgradeInsecureApiBaseToHttps,
+  upgradeInsecureWsUrlToWss,
 } from "./mixedContent";
 
 const CHUNK_MS = 2500;
@@ -17,9 +19,13 @@ const devLog = (...args) => {
 };
 
 function getWsUrl() {
-  const explicit = (import.meta.env.VITE_WS_URL || "").trim();
+  const explicit = upgradeInsecureWsUrlToWss(
+    (import.meta.env.VITE_WS_URL || "").trim()
+  );
   if (explicit) return explicit;
-  const apiBase = (import.meta.env.VITE_API_BASE || "").trim();
+  const apiBase = upgradeInsecureApiBaseToHttps(
+    (import.meta.env.VITE_API_BASE || "").trim()
+  );
   if (apiBase) {
     try {
       const u = new URL(apiBase);

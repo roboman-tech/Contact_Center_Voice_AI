@@ -12,10 +12,17 @@ import {
   Monitor,
 } from "lucide-react";
 import { useLiveCaption } from "./useLiveCaption";
-import { isHttpsPage, isInsecureBackendUrl, mixedContentBackendMessage } from "./mixedContent";
+import {
+  upgradeInsecureApiBaseToHttps,
+  isHttpsPage,
+  isInsecureBackendUrl,
+  mixedContentBackendMessage,
+} from "./mixedContent";
 import "./App.css";
 
-const API_BASE = (import.meta.env.VITE_API_BASE ?? "").trim();
+const API_BASE = upgradeInsecureApiBaseToHttps(
+  (import.meta.env.VITE_API_BASE ?? "").trim()
+);
 
 const HALLUCINATION_PHRASES = [
   "thanks for watching",
