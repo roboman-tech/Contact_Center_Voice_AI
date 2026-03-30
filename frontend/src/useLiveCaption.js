@@ -4,6 +4,11 @@
  */
 
 import { useCallback, useRef } from "react";
+import {
+  isHttpsPage,
+  isInsecureBackendUrl,
+  mixedContentBackendMessage,
+} from "./mixedContent";
 
 const CHUNK_MS = 2500;
 
@@ -12,9 +17,9 @@ const devLog = (...args) => {
 };
 
 function getWsUrl() {
-  const explicit = import.meta.env.VITE_WS_URL;
+  const explicit = (import.meta.env.VITE_WS_URL || "").trim();
   if (explicit) return explicit;
-  const apiBase = import.meta.env.VITE_API_BASE;
+  const apiBase = (import.meta.env.VITE_API_BASE || "").trim();
   if (apiBase) {
     try {
       const u = new URL(apiBase);
@@ -26,6 +31,13 @@ function getWsUrl() {
   }
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws/live`;
+}
+
+function isProdMissingBackendEnv() {
+  if (!import.meta.env.PROD) return false;
+  const hasApi = (import.meta.env.VITE_API_BASE || "").trim();
+  const hasWs = (import.meta.env.VITE_WS_URL || "").trim();
+  return !hasApi && !hasWs;
 }
 
 export function useLiveCaption({
@@ -77,6 +89,17 @@ export function useLiveCaption({
 
   const start = useCallback(
     async (source) => {
+      if (isProdMissingBackendEnv()) {
+        onError?.(
+          "Production: add VITE_API_BASE (https URL of your FastAPI server) in Vercel → Settings → Environment Variables, then Redeploy. Optional: VITE_WS_URL=wss://same-host/ws/live"
+        );
+        return false;
+      }
+      const wsUrl = getWsUrl();
+      if (import.meta.env.PROD && isHttpsPage() && isInsecureBackendUrl(wsUrl)) {
+        onError?.(mixedContentBackendMessage());
+        return false;
+      }
       const isMic = source === "mic";
       let stream;
       try {
@@ -104,7 +127,7 @@ export function useLiveCaption({
 
       streamRef.current = stream;
 
-      const ws = new WebSocket(getWsUrl());
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onmessage = (e) => {

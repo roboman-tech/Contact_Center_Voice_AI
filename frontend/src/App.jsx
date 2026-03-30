@@ -12,9 +12,10 @@ import {
   Monitor,
 } from "lucide-react";
 import { useLiveCaption } from "./useLiveCaption";
+import { isHttpsPage, isInsecureBackendUrl, mixedContentBackendMessage } from "./mixedContent";
 import "./App.css";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+const API_BASE = (import.meta.env.VITE_API_BASE ?? "").trim();
 
 const HALLUCINATION_PHRASES = [
   "thanks for watching",
@@ -181,6 +182,13 @@ export default function App() {
     const question = detectLatestQuestion(snapshot.dialogue);
     setIsGenerating(true);
     setAnswer("");
+
+    if (import.meta.env.PROD && isHttpsPage() && API_BASE && isInsecureBackendUrl(API_BASE)) {
+      setAnswer(mixedContentBackendMessage());
+      setStatus("Error");
+      setIsGenerating(false);
+      return;
+    }
 
     try {
       const res = await fetch(`${API_BASE}/api/generate`, {
