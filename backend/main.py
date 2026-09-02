@@ -44,12 +44,15 @@ if not shutil.which("ffmpeg"):
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import iterate_in_threadpool
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 
 from deepseek_api import generate as deepseek_generate
+from deepseek_api import get_api_key as deepseek_api_key_configured
+from deepseek_api import iter_generate_stream as deepseek_iter_stream
 from transcriber import transcribe_audio
 from realtime_transcriber import WebRealtimeTranscriber
 
@@ -85,8 +88,8 @@ class GenerateResponse(BaseModel):
 
 def _build_prompt(pre_given_context: str, dialogue: list[dict], question: str) -> tuple[str, str]:
     sys = (
-        "You are an interview answering assistant. Use the pre-given context and "
-        "dialogue history (chat since last clear) to generate clear, relevant answers. Be concise but complete."
+        "Interview assistant: use pre-given context + dialogue since last clear. "
+        "Answer clearly; be concise (short paragraphs, no filler)."
     )
     lines = [f"{h.get('speaker', 'Speaker')}: {h.get('text', '')}" for h in dialogue]
     dialogue_text = "\n".join(lines) if lines else "(no chat yet – history was cleared)"
@@ -135,6 +138,36 @@ async def api_generate(req: GenerateRequest):
         return GenerateResponse(answer=answer or "", error=None if answer else "No response from DeepSeek.")
     except Exception as e:
         return GenerateResponse(answer="", error=str(e))
+
+
+@app.post("/api/generate/stream")
+async def api_generate_stream(req: GenerateRequest):
+    """Same inputs as /api/generate; SSE stream for faster time-to-first-token (DeepSeek API)."""
+    sys_prompt, user_prompt = _build_prompt(
+        req.user_context, req.dialogue, req.question or "",
+    )
+
+    def sse_iter():
+        if not deepseek_api_key_configured():
+            yield f"data: {json.dumps({'error': 'Missing DEEPSEEK_API_KEY'})}\n\n".encode("utf-8")
+            return
+        try:
+            for piece in deepseek_iter_stream(user_prompt, system_prompt=sys_prompt, timeout=60):
+                yield f"data: {json.dumps({'c': piece})}\n\n".encode("utf-8")
+            yield b"data: [DONE]\n\n"
+        except Exception as e:
+            logger.exception("DeepSeek stream failed")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n".encode("utf-8")
+
+    return StreamingResponse(
+        iterate_in_threadpool(sse_iter()),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/health")

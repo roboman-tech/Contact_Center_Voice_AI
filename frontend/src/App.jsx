@@ -44,6 +44,37 @@ function isHallucination(text) {
   return HALLUCINATION_PHRASES.some((p) => t === p || t.endsWith(" " + p));
 }
 
+async function consumeGenerateSse(response, onChunk, onError) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let sep;
+    while ((sep = buffer.indexOf("\n\n")) >= 0) {
+      const block = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      for (const line of block.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        const payload = line.slice(6).trim();
+        if (payload === "[DONE]") return;
+        try {
+          const j = JSON.parse(payload);
+          if (j.error) {
+            onError(j.error);
+            return;
+          }
+          if (j.c) onChunk(j.c);
+        } catch {
+          /* ignore malformed SSE */
+        }
+      }
+    }
+  }
+}
+
 function detectLatestQuestion(history) {
   const markers = [
     "?",
@@ -82,6 +113,7 @@ export default function App() {
   const [context, setContext] = useState("");
   const [answer, setAnswer] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState("");
   const [model, setModel] = useState("small.en");
   const [device, setDevice] = useState("auto");
   const isRecordingRef = useRef(false);
@@ -184,11 +216,25 @@ export default function App() {
     setTimeout(() => setStatus(isRecordingRef.current ? "Live caption • Recording…" : "Ready"), 1000);
   }, [sendClear]);
 
+  const copyAnswerToClipboard = useCallback(async () => {
+    const text = (answer || "").trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyFeedback("Copied — paste anywhere (e.g. Notepad)");
+      window.setTimeout(() => setCopyFeedback(""), 2800);
+    } catch {
+      setCopyFeedback("Copy failed — select text and use Ctrl+C");
+      window.setTimeout(() => setCopyFeedback(""), 3500);
+    }
+  }, [answer]);
+
   const generateAnswer = useCallback(async () => {
     const snapshot = { dialogue: [...dialogue], context };
     const question = detectLatestQuestion(snapshot.dialogue);
     setIsGenerating(true);
     setAnswer("");
+    setCopyFeedback("");
 
     if (import.meta.env.PROD && isHttpsPage() && API_BASE && isInsecureBackendUrl(API_BASE)) {
       setAnswer(mixedContentBackendMessage());
@@ -198,7 +244,7 @@ export default function App() {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/api/generate`, {
+      const res = await fetch(`${API_BASE}/api/generate/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -207,10 +253,28 @@ export default function App() {
           question: question || null,
         }),
       });
-      const data = await res.json();
-      setAnswer(data.error || data.answer || "No response.");
-      if (!isRecordingRef.current) {
-        setStatus(data.error ? "Error" : "Answer generated");
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        setAnswer(errText || `Request failed (${res.status})`);
+        if (!isRecordingRef.current) setStatus("Error");
+        return;
+      }
+      let full = "";
+      await consumeGenerateSse(
+        res,
+        (chunk) => {
+          full += chunk;
+          setAnswer(full);
+        },
+        (err) => {
+          setAnswer(full ? `${full}\n\n[Error: ${err}]` : err);
+        }
+      );
+      if (!full.trim()) {
+        setAnswer("No response from DeepSeek.");
+        if (!isRecordingRef.current) setStatus("Error");
+      } else if (!isRecordingRef.current) {
+        setStatus("Answer generated");
       }
     } catch (err) {
       setAnswer("Error: " + err.message);
@@ -421,21 +485,50 @@ export default function App() {
                 <p className="hint">Based on dialogue and context.</p>
               </div>
             ) : (
-              <motion.div
-                className="answer-content"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                key={answer}
-              >
-                {answer}
-              </motion.div>
+              <>
+                {(answer || isGenerating) && (
+                  <p className="answer-copy-hint">
+                    {isGenerating && !answer
+                      ? "Streaming… click text below anytime to copy the answer so far."
+                      : answer
+                        ? "Click the answer text to copy it to the clipboard."
+                        : null}
+                  </p>
+                )}
+                <motion.div
+                  role="button"
+                  tabIndex={answer ? 0 : -1}
+                  className={`answer-content ${answer ? "answer-copyable" : ""}`}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  onClick={() => answer && copyAnswerToClipboard()}
+                  onKeyDown={(e) => {
+                    if (!answer) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      copyAnswerToClipboard();
+                    }
+                  }}
+                >
+                  {isGenerating && !answer ? (
+                    <span className="caption-temp">Waiting for first token…</span>
+                  ) : (
+                    answer
+                  )}
+                </motion.div>
+                {copyFeedback ? (
+                  <p className="answer-copy-toast" role="status">
+                    {copyFeedback}
+                  </p>
+                ) : null}
+              </>
             )}
           </Panel>
         </div>
       </main>
 
       <footer className="footer">
-        <span>Ready • Ctrl+C to copy</span>
+        <span>Click generated answer to copy • streaming uses DeepSeek API</span>
       </footer>
     </div>
   );
